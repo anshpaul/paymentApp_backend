@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Razorpay = require('razorpay');
 const { authenticateToken } = require('../middleware/auth'); // Assuming you have an auth middleware
+const crypto = require('crypto');
 
 // Initialize Razorpay with credentials from environment variables
 const razorpay = new Razorpay({
@@ -21,7 +22,7 @@ router.post('/create-order', authenticateToken, async (req, res) => {
     const order = await razorpay.orders.create({
       amount: amount, // Amount in paise
       currency: currency,
-      receipt: receipt_${itemId},
+      receipt: `receipt_${itemId}`, // ✅ Fixed template literal
     });
     res.status(200).json({ orderId: order.id });
   } catch (error) {
@@ -38,10 +39,9 @@ router.post('/verify', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Missing payment details' });
   }
 
-  const crypto = require('crypto');
   const generated_signature = crypto
     .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-    .update(${razorpay_order_id}|${razorpay_payment_id})
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`) // ✅ Fixed template literal
     .digest('hex');
 
   if (generated_signature === razorpay_signature) {
@@ -96,5 +96,3 @@ router.get('/history/:subscriptionId', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
-
- 
