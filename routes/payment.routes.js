@@ -2,53 +2,63 @@ const express = require('express');
 const router = express.Router();
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
+const { authenticateToken } = require('../middleware/auth');
 const Payment = require('../models/payment.model');
 const Upload = require('../models/upload');
 
-// Initialize Razorpay
+// ✅ Initialize Razorpay with credentials from environment variables
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// POST - Create Razorpay order
-router.post('/create-order', async (req, res) => {
-  const { amount, itemId } = req.body;
-  if (!amount || !itemId) {
-    return res.status(400).json({ error: 'Amount and itemId are required' });
+// ===============================
+// 🚀 1️⃣ CREATE RAZORPAY ORDER
+// ===============================
+router.post('/create-order', authenticateToken, async (req, res) => {
+  const { amount, itemId, currency } = req.body;
+
+  if (!amount || !itemId || !currency) {
+    return res.status(400).json({ error: 'Amount, itemId, and currency are required' });
   }
 
   try {
+    // ✅ Find the item in DB
     const upload = await Upload.findById(itemId);
     if (!upload) {
       return res.status(404).json({ error: 'Item not found' });
     }
 
+    // ✅ Create Razorpay order
     const options = {
-  amount, // already in paise
-  currency: 'INR',
-  receipt: `rcpt_${Date.now()}`, // ✅ shortened to valid format
-};
-
+      amount, // in paise
+      currency,
+      receipt: `rcpt_${Date.now()}`,
+    };
 
     const order = await razorpay.orders.create(options);
-    res.status(200).json({ orderId: order.id, amount, currency: 'INR' });
+
+    res.status(200).json({
+      orderId: order.id,
+      amount,
+      currency,
+    });
   } catch (err) {
-    console.log("✅ Razorpay ID:", process.env.RAZORPAY_KEY_ID);
-    console.log("✅ Razorpay Secret:", process.env.RAZORPAY_KEY_SECRET);
-    console.error('Razorpay order creation failed:', err);
+    console.error('❌ Razorpay order creation failed:', err);
     res.status(500).json({
       error: `Failed to create order: ${err?.error?.description || err.message || 'Unknown error'}`,
     });
   }
 });
 
-// POST - Verify and save payment
-router.post('/verify', async (req, res) => {
+// ===============================
+// 🚀 2️⃣ VERIFY PAYMENT & SAVE
+// ===============================
+router.post('/verify', authenticateToken, async (req, res) => {
   const { paymentId, orderId, signature, amount, itemId, email, contact } = req.body;
 
   try {
-    // Verify payment signature
+    // ✅ Verify signature
     const generatedSignature = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(`${orderId}|${paymentId}`)
@@ -58,13 +68,15 @@ router.post('/verify', async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment signature' });
     }
 
+    // ✅ Find the item
     const upload = await Upload.findById(itemId);
     if (!upload) {
       return res.status(404).json({ error: 'Item not found' });
     }
 
-    const amountInINR = amount / 100; // ✅ convert paise to INR
+    const amountInINR = amount / 100; // Convert paise to INR
 
+    // ✅ Save payment in DB
     const payment = new Payment({
       amount: amountInINR,
       paymentId,
@@ -82,21 +94,70 @@ router.post('/verify', async (req, res) => {
     upload.donorCount += 1;
     await upload.save();
 
-    res.status(200).json({ message: 'Payment verified and saved', payment });
+    res.status(200).json({ message: '✅ Payment verified and saved', payment });
   } catch (err) {
+    console.error('❌ Payment verification failed:', err);
     res.status(500).json({ error: `Payment verification failed: ${err.message}` });
   }
 });
 
-// GET - All payments
-router.get('/history', async (req, res) => {
+// ===============================
+// 🚀 3️⃣ GET ALL PAYMENTS HISTORY
+// ===============================
+router.get('/history', authenticateToken, async (req, res) => {
   try {
     const payments = await Payment.find()
       .populate('itemId', 'title')
       .sort({ createdAt: -1 });
+
     res.status(200).json(payments);
   } catch (err) {
+    console.error('❌ Fetch payments error:', err);
     res.status(500).json({ error: `Failed to fetch payments: ${err.message}` });
+  }
+});
+
+// ===============================
+// 🚀 4️⃣ CREATE SUBSCRIPTION
+// ===============================
+router.post('/create-subscription', authenticateToken, async (req, res) => {
+  const { name, email, contact } = req.body;
+
+  if (!name || !email || !contact) {
+    return res.status(400).json({ error: 'Name, email, and contact are required' });
+  }
+
+  try {
+    const subscription = await razorpay.subscriptions.create({
+      plan_id: process.env.RAZORPAY_PLAN_ID,
+      customer_notify: 1,
+      total_count: 365, // e.g. daily billing for a year
+      quantity: 1,
+      notes: { name, email, contact },
+    });
+
+    res.status(200).json({
+      subscription_id: subscription.id,
+      short_url: subscription.short_url,
+    });
+  } catch (err) {
+    console.error('❌ Error creating subscription:', err);
+    res.status(500).json({ error: 'Failed to create subscription' });
+  }
+});
+
+// ===============================
+// 🚀 5️⃣ SUBSCRIPTION PAYMENT HISTORY
+// ===============================
+router.get('/history/:subscriptionId', authenticateToken, async (req, res) => {
+  const { subscriptionId } = req.params;
+
+  try {
+    const payments = await razorpay.subscriptions.allPayments(subscriptionId);
+    res.status(200).json(payments.items);
+  } catch (err) {
+    console.error('❌ Error fetching subscription history:', err);
+    res.status(500).json({ error: 'Failed to fetch payment history' });
   }
 });
 
