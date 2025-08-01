@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Razorpay = require('razorpay');
-// Assuming you have an auth middleware
+const { authenticateToken } = require('./middleware/auth'); // ✅ Added this line
 const crypto = require('crypto');
 
 // Initialize Razorpay with credentials from environment variables
@@ -20,9 +20,9 @@ router.post('/create-order', authenticateToken, async (req, res) => {
 
   try {
     const order = await razorpay.orders.create({
-      amount: amount, // Amount in paise
+      amount: amount,
       currency: currency,
-      receipt: `receipt_${itemId}`, // ✅ Fixed template literal
+      receipt: `receipt_${itemId}`,
     });
     res.status(200).json({ orderId: order.id });
   } catch (error) {
@@ -41,11 +41,10 @@ router.post('/verify', authenticateToken, async (req, res) => {
 
   const generated_signature = crypto
     .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-    .update(`${razorpay_order_id}|${razorpay_payment_id}`) // ✅ Fixed template literal
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
     .digest('hex');
 
   if (generated_signature === razorpay_signature) {
-    // Save payment details to database if needed
     res.status(200).json({ success: true, message: 'Payment verified successfully' });
   } else {
     res.status(400).json({ error: 'Invalid payment signature' });
@@ -62,15 +61,11 @@ router.post('/create-subscription', authenticateToken, async (req, res) => {
 
   try {
     const subscription = await razorpay.subscriptions.create({
-      plan_id: process.env.RAZORPAY_PLAN_ID, // Set this in .env
+      plan_id: process.env.RAZORPAY_PLAN_ID,
       customer_notify: 1,
-      total_count: 365, // Number of billing cycles (e.g., 1 year for daily)
+      total_count: 365,
       quantity: 1,
-      notes: {
-        name,
-        email,
-        contact,
-      },
+      notes: { name, email, contact },
     });
     res.status(200).json({
       subscription_id: subscription.id,
