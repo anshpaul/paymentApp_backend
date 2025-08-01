@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Razorpay = require('razorpay');
-const { authenticateToken } = require('../middleware/auth'); // Assuming you have an auth middleware
+// Assuming you have an auth middleware
 const crypto = require('crypto');
 
 // Initialize Razorpay with credentials from environment variables
